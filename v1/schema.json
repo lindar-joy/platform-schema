@@ -1,0 +1,124 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/lindar-joy/platform-schema/main/v1/schema.json",
+  "title": "Platform Manifest (v1)",
+  "description": "Canonical schema for the platform.yaml file authored in service repositories. Validated by the platform pipeline and translated into the values consumed by the shared helm chart at deploy time.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["apiVersion", "metadata", "spec"],
+  "properties": {
+    "apiVersion": {
+      "type": "string",
+      "const": "platform.mrq/v1",
+      "description": "Pins this manifest to v1 of the platform schema. Within v1 the schema evolves additively (new optional fields, non-breaking defaults). Breaking changes ship as a new major (v2) and require an explicit bump."
+    },
+    "metadata": { "$ref": "#/$defs/Metadata" },
+    "spec": { "$ref": "#/$defs/Spec" },
+    "environments": { "$ref": "#/$defs/Environments" }
+  },
+  "$defs": {
+    "Metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "owner"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "The service / app name. Convention: matches the repository name. Lowercase, hyphen-separated."
+        },
+        "owner": {
+          "type": "string",
+          "description": "The owning team's identifier — typically the GitHub team slug. Propagated to runtime pod labels so observability and cost-attribution tooling can group by team."
+        }
+      }
+    },
+    "Spec": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "replicas", "compute"],
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["backend-api", "web", "mobile", "scheduled-job"],
+          "description": "The type of workload. Determines which sub-pipeline and helm chart variant the platform applies."
+        },
+        "priorityClass": {
+          "type": "string",
+          "enum": ["critical", "high", "medium", "low"],
+          "description": "Optional. The priority class for this workload. Omit unless the legacy config explicitly sets one — let platform defaults apply otherwise."
+        },
+        "replicas": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "description": "Desired number of pod replicas in PRODUCTION. dev and staging replica counts are defaulted by the platform — do not set them here."
+        },
+        "compute": { "$ref": "#/$defs/Compute" },
+        "dependencies": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Optional. Other services this service depends on, listed by canonical service identifier. Sort alphabetically."
+        }
+      }
+    },
+    "Compute": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["requests", "limits"],
+      "description": "Paired requests / limits for the PRODUCTION workload. dev and staging compute is defaulted by the platform — do not set it here.",
+      "properties": {
+        "requests": { "$ref": "#/$defs/ResourceQuantities" },
+        "limits": { "$ref": "#/$defs/ResourceQuantities" }
+      }
+    },
+    "ResourceQuantities": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["memory", "cpu"],
+      "properties": {
+        "memory": {
+          "type": "string",
+          "description": "Kubernetes memory quantity, e.g. \"512Mi\", \"3000Mi\", \"2Gi\"."
+        },
+        "cpu": {
+          "type": "string",
+          "description": "Kubernetes CPU quantity, e.g. \"500m\", \"4000m\", \"2\"."
+        }
+      }
+    },
+    "Environments": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Per-environment configuration. Every block (`dev`, `staging`, `prod`, `all`) is optional — emit only the blocks the service actually needs and never emit empty stubs. Runtime semantics: `variables` are merged key-by-key with per-env values winning over `all`; `secrets` are set-unioned across `all` and the per-env block. If a value is identical across every environment, declare it once in `all`.",
+      "properties": {
+        "dev": { "$ref": "#/$defs/EnvBlock" },
+        "staging": { "$ref": "#/$defs/EnvBlock" },
+        "prod": { "$ref": "#/$defs/EnvBlock" },
+        "all": { "$ref": "#/$defs/EnvBlock" }
+      }
+    },
+    "EnvBlock": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "The uniform shape used for every environment block. Both fields are optional; include only what's needed.",
+      "properties": {
+        "variables": { "$ref": "#/$defs/EnvVars" },
+        "secrets": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Names of secrets the workload needs at runtime in this block. Each entry is the secret's identifier; the platform resolves it against the secret store and injects it into the runtime environment as a variable of the same name. Sort alphabetically."
+        }
+      }
+    },
+    "EnvVars": {
+      "type": "object",
+      "description": "A bare environment-variable map. Keys are env-var names; values are usually strings — booleans and numbers are accepted where the consuming application expects them.",
+      "additionalProperties": {
+        "oneOf": [
+          { "type": "string" },
+          { "type": "boolean" },
+          { "type": "number" }
+        ]
+      }
+    }
+  }
+}
