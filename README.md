@@ -15,27 +15,31 @@ time.
 ## Layout
 
 ```
+schema.json        Top-level router — dispatches on `apiVersion` to the
+                   matching per-major contract. This is the URL service
+                   repositories point at.
 v1/
-└── schema.json    JSON Schema document — the canonical v1 contract
+└── schema.json    The v1 contract (resolved by the router when
+                   `apiVersion: platform.mrq/v1`).
 ```
 
-A future `v2/` will live alongside `v1/` during the deprecation window; both
-majors run in parallel until the older one is retired.
+A future `v2/` will live alongside `v1/`; the router gains a second dispatch
+branch and both majors validate in parallel until the older one is retired.
 
 ## Consuming the schema
 
-Each major is hosted at a stable URL on the `main` branch:
+Service repositories point at the router URL once and never touch it again
+when bumping majors — only `apiVersion` changes:
 
 ```
-https://raw.githubusercontent.com/lindar-joy/platform-schema/main/v1/schema.json
+https://raw.githubusercontent.com/lindar-joy/platform-schema/master/schema.json
 ```
 
-In a service repo, pin `platform.yaml` to v1 by setting `apiVersion` and
-declaring the schema URL via a [yaml-language-server modeline][modeline] on
-the first line:
+Declare the URL via a [yaml-language-server modeline][modeline] on the first
+line of `platform.yaml`:
 
 ```yaml
-# yaml-language-server: $schema=https://raw.githubusercontent.com/lindar-joy/platform-schema/main/v1/schema.json
+# yaml-language-server: $schema=https://raw.githubusercontent.com/lindar-joy/platform-schema/master/schema.json
 apiVersion: platform.mrq/v1
 metadata:
   name: my-service
@@ -75,13 +79,14 @@ The pipeline is the authoritative validator, but any JSON Schema validator
 works for local checks. Examples:
 
 ```sh
-# Node — ajv-cli
+# Node — ajv-cli (load the router and the per-major schemas it refs into)
 npx ajv-cli@latest validate \
-  -s v1/schema.json \
+  -s schema.json \
+  -r v1/schema.json \
   -d path/to/platform.yaml \
   --spec=draft2020
 
 # Python — check-jsonschema
 pip install check-jsonschema
-check-jsonschema --schemafile v1/schema.json path/to/platform.yaml
+check-jsonschema --schemafile schema.json path/to/platform.yaml
 ```

@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://raw.githubusercontent.com/lindar-joy/platform-schema/main/v1/schema.json",
+  "$id": "https://raw.githubusercontent.com/lindar-joy/platform-schema/master/v1/schema.json",
   "title": "Platform Manifest (v1)",
   "description": "Canonical schema for the platform.yaml file authored in service repositories. Validated by the platform pipeline and translated into the values consumed by the shared helm chart at deploy time.",
   "type": "object",

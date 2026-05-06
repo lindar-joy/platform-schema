@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/lindar-joy/platform-schema/master/schema.json",
+  "title": "Platform Manifest (router)",
+  "description": "Top-level schema that dispatches on `apiVersion` to the per-major contract. Service repositories point their yaml-language-server modeline at this URL once and bump only `apiVersion` when adopting a new major.",
+  "type": "object",
+  "required": ["apiVersion"],
+  "properties": {
+    "apiVersion": {
+      "type": "string",
+      "enum": ["platform.mrq/v1"],
+      "description": "Pins this manifest to a major version of the platform schema. The router dispatches to the matching per-major schema for full validation."
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "apiVersion": { "const": "platform.mrq/v1" } },
+        "required": ["apiVersion"]
+      },
+      "then": { "$ref": "v1/schema.json" }
+    }
+  ]
+}
