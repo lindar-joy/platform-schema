@@ -40,7 +40,7 @@
     "Spec": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["type", "replicas", "compute"],
+      "required": ["type", "replicas", "compute", "internetExposure"],
       "properties": {
         "type": {
           "type": "string",
@@ -138,47 +138,52 @@
       }
     },
     "InternetExposure": {
-      "type": "object",
-      "additionalProperties": false,
-      "description": "Optional. Configures externally-facing routing for the service. Omit entirely for purely internal services — the platform creates internal access paths automatically. Sections within (`public`, `provider`) are independently opt-in.",
-      "properties": {
-        "vhost": {
-          "type": "string",
-          "description": "Optional. Virtual host this service responds to on ALB host-based routing. Defaults to `metadata.name` if omitted."
+      "description": "Required. Declares the service's relationship to internet traffic — the intent, not the mechanics. `mode` is required for every service; `hostnames` is required when `mode == direct` and forbidden otherwise.\n\nModes:\n  - `proxied` — has external API surface, but reached via an edge service (e.g. mrq-gateway). No ALB ingress on this service. Most mrq backend services.\n  - `direct`  — directly exposes ALB ingresses to the internet. Must declare `hostnames`. Used by edge services like mrq-gateway and goosicorn-* services with their own customer or partner URLs.\n  - `none`    — no external API surface at all. Pure worker / consumer / batch service.",
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["mode"],
+          "properties": {
+            "mode": {
+              "type": "string",
+              "enum": ["proxied", "none"],
+              "description": "`proxied` for services behind an edge (e.g. gateway); `none` for pure internal workers."
+            }
+          }
         },
-        "public": { "$ref": "#/$defs/PublicExposure" },
-        "provider": { "$ref": "#/$defs/ProviderExposure" }
-      }
-    },
-    "PublicExposure": {
-      "type": "object",
-      "additionalProperties": false,
-      "description": "Public-facing exposure via CloudFlare (browser / mobile traffic). The underlying ALB is locked to CloudFlare IP ranges at the security-group level.",
-      "properties": {
-        "enabled": {
-          "type": "boolean",
-          "description": "If true, the chart creates a public ingress for this service."
-        },
-        "additionalHostnames": {
-          "type": "array",
-          "items": { "type": "string" },
-          "description": "Extra hostnames this service responds to beyond the default vhost-derived host."
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["mode", "hostnames"],
+          "properties": {
+            "mode": {
+              "type": "string",
+              "const": "direct",
+              "description": "Service directly exposes ALB ingress(es) to the internet."
+            },
+            "hostnames": { "$ref": "#/$defs/InternetExposureHostnames" }
+          }
         }
-      }
+      ]
     },
-    "ProviderExposure": {
+    "InternetExposureHostnames": {
       "type": "object",
       "additionalProperties": false,
-      "description": "3rd-party provider exposure. The underlying ALB is locked to provider-specific IP whitelists at the security-group level (extended per-service via the platform's provider IP whitelist).",
+      "minProperties": 1,
+      "description": "Hostnames the ALB routes to this service, grouped by trust boundary. At least one of `public` or `provider` must be present with a non-empty list. Each list maps to a physically separate ALB with a distinct inbound security-group ACL.",
       "properties": {
-        "enabled": {
-          "type": "boolean",
-          "description": "If true, the chart creates a provider ingress for this service."
-        },
-        "additionalHostnames": {
+        "public": {
           "type": "array",
+          "minItems": 1,
           "items": { "type": "string" },
-          "description": "Extra hostnames this service responds to beyond the default vhost-derived host."
+          "description": "Hostnames accepting traffic from CloudFlare-proxied callers (browsers, mobile apps). The underlying ALB's security group allows CloudFlare CIDR ranges."
+        },
+        "provider": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string" },
+          "description": "Hostnames accepting traffic from named 3rd-party partners (e.g. game providers, payment processors). The underlying ALB's security group allows partner-specific IP allowlists, extended per-service via the platform's provider IP whitelist."
         }
       }
     },
