@@ -20,11 +20,16 @@
     "Metadata": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["name", "owner"],
+      "required": ["name", "product", "owner"],
       "properties": {
         "name": {
           "type": "string",
           "description": "The service / app name. Convention: matches the repository name. Lowercase, hyphen-separated."
+        },
+        "product": {
+          "type": "string",
+          "enum": ["mrq", "goosicorn", "pq"],
+          "description": "The product line this service belongs to. A coarse organisational grouping that spans many services and is independent of the owning team. Propagated to runtime pod labels for cost attribution and high-level grouping."
         },
         "owner": {
           "type": "string",
@@ -45,19 +50,22 @@
         "priorityClass": {
           "type": "string",
           "enum": ["critical", "high", "medium", "low"],
-          "description": "Optional. The priority class for this workload. Omit unless the legacy config explicitly sets one — let platform defaults apply otherwise."
+          "description": "Optional. The priority class for this workload. Omit unless the legacy config explicitly sets one — let platform defaults apply otherwise. The renderer appends `-priority` before passing to the helm chart (e.g. `critical` becomes `critical-priority`); a future chart update will adopt these shorter names directly."
         },
         "replicas": {
           "type": "integer",
-          "exclusiveMinimum": 0,
-          "description": "Desired number of pod replicas in PRODUCTION. dev and staging replica counts are defaulted by the platform — do not set them here."
+          "minimum": 0,
+          "exclusiveMaximum": 16,
+          "description": "Desired number of pod replicas in PRODUCTION. Range is 0..15 inclusive — matches the helm chart's `>=0 & <16` constraint. `0` parks the workload (no pods); auto-wake on traffic requires KEDA or equivalent and is not implied by setting `0` here. dev and staging replica counts are defaulted by the platform — do not set them here."
         },
         "compute": { "$ref": "#/$defs/Compute" },
         "dependencies": {
           "type": "array",
           "items": { "type": "string" },
           "description": "Optional. Other services this service depends on, listed by canonical service identifier. Sort alphabetically."
-        }
+        },
+        "internetExposure": { "$ref": "#/$defs/InternetExposure" },
+        "overrides": { "$ref": "#/$defs/Overrides" }
       }
     },
     "Compute": {
@@ -77,11 +85,13 @@
       "properties": {
         "memory": {
           "type": "string",
-          "description": "Kubernetes memory quantity, e.g. \"512Mi\", \"3000Mi\", \"2Gi\"."
+          "pattern": "^[1-9][0-9]*(Mi|Gi)$",
+          "description": "Kubernetes memory quantity. Must be a positive integer followed by `Mi` or `Gi`, e.g. \"512Mi\", \"3000Mi\", \"2Gi\"."
         },
         "cpu": {
           "type": "string",
-          "description": "Kubernetes CPU quantity, e.g. \"500m\", \"4000m\", \"2\"."
+          "pattern": "^[1-9][0-9]*m$",
+          "description": "Kubernetes CPU quantity in millicores. Must be a positive integer followed by `m`, e.g. \"500m\", \"4000m\". Whole cores are expressed in millicores: 2 cores is \"2000m\", not \"2\"."
         }
       }
     },
@@ -104,20 +114,101 @@
         "variables": { "$ref": "#/$defs/EnvVars" },
         "secrets": {
           "type": "array",
-          "items": { "type": "string" },
-          "description": "Names of secrets the workload needs at runtime in this block. Each entry is the secret's identifier; the platform resolves it against the secret store and injects it into the runtime environment as a variable of the same name. Sort alphabetically."
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Z0-9_]+$"
+          },
+          "description": "Names of secrets the workload needs at runtime in this block. Each entry is the secret's identifier; the platform resolves it against the secret store and injects it into the runtime environment as a variable of the same name. Names must be UPPER_SNAKE_CASE (uppercase letters, digits, underscores). Sort alphabetically. Duplicates are rejected."
         }
       }
     },
     "EnvVars": {
       "type": "object",
-      "description": "A bare environment-variable map. Keys are env-var names; values are usually strings — booleans and numbers are accepted where the consuming application expects them.",
+      "description": "A bare environment-variable map. Keys must be UPPER_SNAKE_CASE (uppercase letters, digits, underscores). Values are usually strings — booleans and numbers are accepted where the consuming application expects them.",
+      "propertyNames": {
+        "pattern": "^[A-Z0-9_]+$"
+      },
       "additionalProperties": {
         "oneOf": [
           { "type": "string" },
           { "type": "boolean" },
           { "type": "number" }
         ]
+      }
+    },
+    "InternetExposure": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Optional. Configures externally-facing routing for the service. Omit entirely for purely internal services — the platform creates internal access paths automatically. Sections within (`public`, `provider`) are independently opt-in.",
+      "properties": {
+        "vhost": {
+          "type": "string",
+          "description": "Optional. Virtual host this service responds to on ALB host-based routing. Defaults to `metadata.name` if omitted."
+        },
+        "public": { "$ref": "#/$defs/PublicExposure" },
+        "provider": { "$ref": "#/$defs/ProviderExposure" }
+      }
+    },
+    "PublicExposure": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Public-facing exposure via CloudFlare (browser / mobile traffic). The underlying ALB is locked to CloudFlare IP ranges at the security-group level.",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "If true, the chart creates a public ingress for this service."
+        },
+        "additionalHostnames": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Extra hostnames this service responds to beyond the default vhost-derived host."
+        }
+      }
+    },
+    "ProviderExposure": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "3rd-party provider exposure. The underlying ALB is locked to provider-specific IP whitelists at the security-group level (extended per-service via the platform's provider IP whitelist).",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "If true, the chart creates a provider ingress for this service."
+        },
+        "additionalHostnames": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Extra hostnames this service responds to beyond the default vhost-derived host."
+        }
+      }
+    },
+    "Overrides": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Optional. Departures from the chart's sane defaults. Set only the fields you need to change — helm deep-merges these onto the chart's defaults, so a partial value (e.g. just `livenessProbe.timeoutSeconds`) keeps every other default in place. The property set is closed so typos in field names are caught at validation time; value shapes are intentionally loose (the helm chart rejects malformed values at template time).",
+      "properties": {
+        "portDefinitions": {
+          "type": "object",
+          "description": "Override the default port mapping (chart default for a standard Spring service is `{actuator: 9090, http: 8080}`). Use for non-standard ports or workers without an actuator endpoint."
+        },
+        "livenessProbe": {
+          "type": "object",
+          "description": "Override the chart's liveness probe (Spring Actuator on 9090 by default). Helm deep-merges, so setting only `timeoutSeconds` preserves the default httpGet path and port."
+        },
+        "readinessProbe": {
+          "type": "object",
+          "description": "Override the chart's readiness probe (Spring Actuator on 9090 by default). Helm deep-merges as for liveness."
+        },
+        "terminationGracePeriodSeconds": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Override the chart's terminationGracePeriodSeconds (default 60). Pods receive SIGKILL after this many seconds if SIGTERM didn't shut them down cleanly."
+        },
+        "prestopGracePeriodSeconds": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Override the chart's prestopGracePeriodSeconds (default 60). Time between the prestop hook and SIGTERM during pod replacement — used to drain in-flight requests."
+        }
       }
     }
   }
