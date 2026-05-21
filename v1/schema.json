@@ -50,17 +50,25 @@
         "priorityClass": {
           "type": "string",
           "enum": ["critical", "high", "medium", "low"],
-          "description": "Optional. The priority class for this workload. Omit unless the legacy config explicitly sets one — let platform defaults apply otherwise. The renderer appends `-priority` before passing to the helm chart (e.g. `critical` becomes `critical-priority`); a future chart update will adopt these shorter names directly."
+          "description": "Optional. The priority class for this workload. Omit unless the legacy config explicitly sets one — let platform defaults apply otherwise. The renderer appends `-priority` before passing to the helm chart (e.g. `critical` becomes `critical-priority`); a future chart update will adopt these shorter names directly. Conditional: when `replicas: 1`, this field is REQUIRED and must be `critical` — a single-replica service without critical priority can be evicted under node pressure with no replica to take traffic, which is the prior CUE invariant carried into v1."
         },
         "replicas": {
           "type": "integer",
           "minimum": 0,
           "exclusiveMaximum": 16,
-          "description": "Desired number of pod replicas in PRODUCTION. Range is 0..15 inclusive — matches the helm chart's `>=0 & <16` constraint. `0` parks the workload (no pods); auto-wake on traffic requires KEDA or equivalent and is not implied by setting `0` here. dev and staging replica counts are defaulted by the platform — do not set them here."
+          "description": "Desired number of pod replicas in PRODUCTION. Range is 0..15 inclusive — matches the helm chart's `>=0 & <16` constraint. `0` parks the workload (no pods); auto-wake on traffic requires KEDA or equivalent and is not implied by setting `0` here. dev and staging replica counts are defaulted by the platform — do not set them here. Note: setting `1` forces `priorityClass` to `critical` (see the priorityClass description)."
         },
         "compute": { "$ref": "#/$defs/Compute" },
         "internetExposure": { "$ref": "#/$defs/InternetExposure" },
         "overrides": { "$ref": "#/$defs/Overrides" }
+      },
+      "if": {
+        "properties": { "replicas": { "const": 1 } },
+        "required": ["replicas"]
+      },
+      "then": {
+        "properties": { "priorityClass": { "const": "critical" } },
+        "required": ["priorityClass"]
       }
     },
     "Compute": {
